@@ -1,7 +1,7 @@
 
 import streamlit as st
 import pandas as pd
-import mysql.connector
+import sqlite3
 
 # ---------------- PAGE CONFIGURATION ----------------
 
@@ -19,38 +19,31 @@ st.write(
     "for exploring OLA ride booking information."
 )
 
-# ---------------- DATABASE CONNECTION ----------------
+# ---------------- LOAD CSV DATA ----------------
 
-def connect_database():
-    return mysql.connector.connect(
-        host="localhost",
-        port=3306,
-        user="root",
-        password="",
-        database="OLA_Cleaned_Data"
-    )
-
-@st.cache_data(ttl=300)
+@st.cache_data
 def load_data():
-    connection = connect_database()
-
-    try:
-        data = pd.read_sql_query(
-            "SELECT * FROM ola_rides",
-            connection
-        )
-        return data
-
-    finally:
-        connection.close()
+    df = pd.read_csv("OLA_Cleaned_Data.csv")
+    return df
 
 try:
     df = load_data()
-    st.success("MySQL Database Connected Successfully!")
+    st.success("OLA Ride Dataset Loaded Successfully!")
 
 except Exception as e:
-    st.error(f"Database Connection Error: {e}")
+    st.error(f"Dataset loading error: {e}")
     st.stop()
+
+# ---------------- CREATE SQL DATABASE ----------------
+
+connection = sqlite3.connect(":memory:", check_same_thread=False)
+
+df.to_sql(
+    "ola_rides",
+    connection,
+    index=False,
+    if_exists="replace"
+)
 
 # ---------------- INTERACTIVE FILTERS ----------------
 
@@ -117,12 +110,12 @@ successful_rides = (
 )
 
 total_booking_value = (
-    filtered_df["Booking_Value"].sum()
+    pd.to_numeric(filtered_df["Booking_Value"], errors="coerce").sum()
     if "Booking_Value" in filtered_df.columns else 0
 )
 
 average_distance = (
-    filtered_df["Ride_Distance"].mean()
+    pd.to_numeric(filtered_df["Ride_Distance"], errors="coerce").mean()
     if "Ride_Distance" in filtered_df.columns else 0
 )
 
@@ -174,24 +167,21 @@ queries = {
     """,
 
     "2. Average Ride Distance by Vehicle Type": """
-        SELECT
-            Vehicle_Type,
-            AVG(Ride_Distance) AS Average_Ride_Distance
+        SELECT Vehicle_Type,
+        AVG(Ride_Distance) AS Average_Ride_Distance
         FROM ola_rides
         GROUP BY Vehicle_Type
     """,
 
     "3. Total Customer Cancellations": """
-        SELECT
-            COUNT(*) AS Total_Customer_Cancellations
+        SELECT COUNT(*) AS Total_Customer_Cancellations
         FROM ola_rides
         WHERE Booking_Status = 'Canceled by Customer'
     """,
 
     "4. Top 5 Customers by Number of Rides": """
-        SELECT
-            Customer_ID,
-            COUNT(Booking_ID) AS Total_Rides
+        SELECT Customer_ID,
+        COUNT(Booking_ID) AS Total_Rides
         FROM ola_rides
         GROUP BY Customer_ID
         ORDER BY Total_Rides DESC
@@ -199,17 +189,15 @@ queries = {
     """,
 
     "5. Driver Cancellations": """
-        SELECT
-            COUNT(*) AS Total_Driver_Cancellations
+        SELECT COUNT(*) AS Total_Driver_Cancellations
         FROM ola_rides
         WHERE Canceled_Rides_by_Driver =
         'Personal & Car related issue'
     """,
 
     "6. Prime Sedan Driver Ratings": """
-        SELECT
-            MAX(Driver_Ratings) AS Maximum_Rating,
-            MIN(Driver_Ratings) AS Minimum_Rating
+        SELECT MAX(Driver_Ratings) AS Maximum_Rating,
+        MIN(Driver_Ratings) AS Minimum_Rating
         FROM ola_rides
         WHERE Vehicle_Type = 'Prime Sedan'
     """,
@@ -221,25 +209,22 @@ queries = {
     """,
 
     "8. Average Customer Rating by Vehicle Type": """
-        SELECT
-            Vehicle_Type,
-            AVG(Customer_Rating) AS Average_Customer_Rating
+        SELECT Vehicle_Type,
+        AVG(Customer_Rating) AS Average_Customer_Rating
         FROM ola_rides
         GROUP BY Vehicle_Type
     """,
 
     "9. Total Booking Value of Successful Rides": """
-        SELECT
-            SUM(Booking_Value) AS Total_Booking_Value
+        SELECT SUM(Booking_Value) AS Total_Booking_Value
         FROM ola_rides
         WHERE Booking_Status = 'Success'
     """,
 
     "10. Incomplete Rides with Reasons": """
-        SELECT
-            Booking_ID,
-            Incomplete_Rides,
-            Incomplete_Rides_Reason
+        SELECT Booking_ID,
+        Incomplete_Rides,
+        Incomplete_Rides_Reason
         FROM ola_rides
         WHERE Incomplete_Rides = 'Yes'
     """
@@ -252,11 +237,7 @@ selected_query = st.selectbox(
 
 if st.button("Run SQL Query"):
 
-    connection = None
-
     try:
-        connection = connect_database()
-
         result = pd.read_sql_query(
             queries[selected_query],
             connection
@@ -274,14 +255,8 @@ if st.button("Run SQL Query"):
     except Exception as e:
         st.error(f"SQL Query Error: {e}")
 
-    finally:
-        if connection and connection.is_connected():
-            connection.close()
-
 # ---------------- FOOTER ----------------
 
 st.divider()
 
-st.caption(
-    "OLA Ride Insights | Data Analytics Project"
-)
+st.caption("OLA Ride Insights | Data Analytics Project")
